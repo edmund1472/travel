@@ -207,62 +207,85 @@ export default function FlightSearchForm() {
   };
 
   const handleSearch = async (event: FormEvent) => {
-    event.preventDefault();
+  event.preventDefault();
 
-    if (!homeAirport || destinations.length === 0 || !departDate) {
-      setFeedback("Please complete the home airport, destination, and departure fields.");
-      return;
-    }
+  if (!homeAirport || destinations.length === 0 || !departDate) {
+    setFeedback(
+      "Please complete the home airport, destination, and departure fields."
+    );
+    return;
+  }
 
-    setIsSubmitting(true);
-    setFeedback("");
+  setIsSubmitting(true);
+  setFeedback("");
 
-    try {
-      const resultsUrl = `/results?${new URLSearchParams({
-        homeAirport,
-        destinations: destinations.map((destination) => destination.code).join(","),
-        departDate,
-        returnDate: returnDate || "",
-        tripDuration,
-        allowLayovers: allowLayovers ? "true" : "false",
-      }).toString()}`;
+  const resultsUrl = `/results?${new URLSearchParams({
+    homeAirport,
+    destinations: destinations
+      .map((destination) => destination.code)
+      .join(","),
+    departDate,
+    returnDate: returnDate || "",
+    tripDuration,
+    allowLayovers: allowLayovers ? "true" : "false",
+  }).toString()}`;
 
-      const response = await fetch("http://localhost:8081/api/flight-searches", {
+  try {
+    const response = await fetch(
+      "http://localhost:8081/api/searches",
+      {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           homeAirport,
-          destinations: destinations.map((destination) => destination.code).join(","),
+          destinations: destinations
+            .map((destination) => destination.code)
+            .join(","),
           departDate,
           returnDate: returnDate || null,
           tripDuration,
           customDays: customDays || null,
           allowLayovers,
         }),
-      });
+      }
+    );
 
-      if (!response.ok) throw new Error("Search could not be saved");
-
-      const savedSearch = (await response.json()) as RecentSearch;
-      setRecentSearches((previous) => [savedSearch, ...previous].slice(0, 6));
-      setFeedback("Search saved successfully and sent to your backend.");
-      router.push(resultsUrl);
-
-      setHomeAirport("");
-      setDestinations([]);
-      setDestinationInput("");
-      setDepartDate("");
-      setReturnDate("");
-      setTripDuration("");
-      setCustomDays("");
-      setAllowLayovers(false);
-    } catch {
-      setFeedback("The form is ready, but the backend was not reachable. Please ensure Spring Boot is running.");
-      router.push(resultsUrl);
-    } finally {
-      setIsSubmitting(false);
+    if (!response.ok) {
+      throw new Error("Search could not be saved");
     }
-  };
+
+    const savedSearch = (await response.json()) as RecentSearch;
+
+    setRecentSearches((previous) =>
+      [savedSearch, ...previous].slice(0, 6)
+    );
+
+    setFeedback(
+      "Search saved successfully and sent to your backend."
+    );
+
+    router.push(resultsUrl);
+
+    setHomeAirport("");
+    setDestinations([]);
+    setDestinationInput("");
+    setDepartDate("");
+    setReturnDate("");
+    setTripDuration("");
+    setCustomDays("");
+    setAllowLayovers(false);
+  } catch (error) {
+    console.error(error);
+
+    setFeedback(
+      "The search could not be saved, but you can still view the results."
+    );
+
+    router.push(resultsUrl);
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   const calendarDays = generateCalendarDays(calendarMonth);
   const monthName = calendarMonth.toLocaleString("default", {

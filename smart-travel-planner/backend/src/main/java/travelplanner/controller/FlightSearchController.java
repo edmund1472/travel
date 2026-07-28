@@ -1,66 +1,43 @@
 package travelplanner.controller;
 
-import java.util.List;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import travelplanner.model.FlightSearch;
-import travelplanner.repository.FlightSearchRepository;
+import travelplanner.model.FlightResult;
+
+import java.util.List;
 
 @RestController
-@RequestMapping("/api/flight-searches")
-@CrossOrigin(origins = {"http://localhost:3000"})
+@RequestMapping("/api/flights")
 public class FlightSearchController {
 
-    private final FlightSearchRepository repository;
-
-    public FlightSearchController(FlightSearchRepository repository) {
-        this.repository = repository;
+    @GetMapping("/search")
+    public List<FlightResult> searchFlights() {
+        return List.of(
+                new FlightResult(
+                        "1",
+                        "Delta Airlines",
+                        "JFK",
+                        "LAX",
+                        "08:00 AM",
+                        "11:30 AM",
+                        "5h 30m",
+                        0,
+                        245.00,
+                        4.5
+                ),
+                new FlightResult(
+                        "2",
+                        "United Airlines",
+                        "EWR",
+                        "LAX",
+                        "10:15 AM",
+                        "2:00 PM",
+                        "5h 45m",
+                        1,
+                        220.00,
+                        4.2
+                )
+        );
     }
-
-    @GetMapping
-    public List<FlightSearch> getRecentSearches() {
-        return repository.findTop6ByOrderByCreatedAtDesc();
-    }
-
-    @PostMapping
-    public ResponseEntity<FlightSearch> createSearch(@RequestBody FlightSearchRequest request) {
-        FlightSearch search = new FlightSearch();
-        search.setHomeAirport(request.homeAirport());
-        search.setDestinations(request.destinations());
-        search.setDepartDate(request.departDate());
-        search.setReturnDate(request.returnDate());
-        search.setTripDuration(request.tripDuration());
-        search.setCustomDays(request.customDays());
-        search.setAllowLayovers(request.allowLayovers());
-
-        FlightSearch saved = repository.save(search);
-        return ResponseEntity.status(HttpStatus.CREATED).body(saved);
-    }
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteSearch(@PathVariable Long id) {
-        if (!repository.existsById(id)) {
-            return ResponseEntity.notFound().build();
-        }
-        repository.deleteById(id);
-        return ResponseEntity.noContent().build();
-    }
-
-    public record FlightSearchRequest(
-        String homeAirport,
-        String destinations,
-        String departDate,
-        String returnDate,
-        String tripDuration,
-        String customDays,
-        boolean allowLayovers
-    ) {}
 }

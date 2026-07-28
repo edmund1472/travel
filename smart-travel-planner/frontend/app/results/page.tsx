@@ -17,80 +17,6 @@ interface Flight {
   rating: number;
 }
 
-const mockFlights: Flight[] = [
-  {
-    id: "1",
-    airline: "Delta Airlines",
-    departure: "JFK",
-    arrival: "LAX",
-    departureTime: "08:00 AM",
-    arrivalTime: "11:30 AM",
-    duration: "5h 30m",
-    stops: 0,
-    price: 245,
-    rating: 4.5,
-  },
-  {
-    id: "2",
-    airline: "United Airlines",
-    departure: "JFK",
-    arrival: "LAX",
-    departureTime: "10:15 AM",
-    arrivalTime: "02:45 PM",
-    duration: "5h 30m",
-    stops: 0,
-    price: 289,
-    rating: 4.3,
-  },
-  {
-    id: "3",
-    airline: "American Airlines",
-    departure: "JFK",
-    arrival: "LAX",
-    departureTime: "12:30 PM",
-    arrivalTime: "04:00 PM",
-    duration: "5h 30m",
-    stops: 1,
-    price: 199,
-    rating: 4.1,
-  },
-  {
-    id: "4",
-    airline: "Southwest Airlines",
-    departure: "JFK",
-    arrival: "LAX",
-    departureTime: "02:00 PM",
-    arrivalTime: "06:30 PM",
-    duration: "5h 30m",
-    stops: 1,
-    price: 175,
-    rating: 3.9,
-  },
-  {
-    id: "5",
-    airline: "JetBlue Airways",
-    departure: "JFK",
-    arrival: "LAX",
-    departureTime: "04:45 PM",
-    arrivalTime: "08:15 PM",
-    duration: "5h 30m",
-    stops: 0,
-    price: 320,
-    rating: 4.6,
-  },
-  {
-    id: "6",
-    airline: "Spirit Airlines",
-    departure: "JFK",
-    arrival: "LAX",
-    departureTime: "06:00 PM",
-    arrivalTime: "10:30 PM",
-    duration: "5h 30m",
-    stops: 2,
-    price: 129,
-    rating: 3.2,
-  },
-];
 
 type SortOption = "price-low" | "price-high" | "duration" | "rating";
 type FilterStops = "all" | "0" | "1" | "2+";
@@ -103,31 +29,40 @@ export default function FlightResults() {
   const departDate = searchParams?.get("departDate") ?? "";
   const returnDate = searchParams?.get("returnDate") ?? "";
 
-  const [flights, setFlights] = useState<Flight[]>(mockFlights);
-  const [filteredFlights, setFilteredFlights] = useState<Flight[]>(mockFlights);
+  const [flights, setFlights] = useState<Flight[]>([]);
+  const [filteredFlights, setFilteredFlights] = useState<Flight[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("price-low");
   const [maxPrice, setMaxPrice] = useState(500);
   const [stops, setStops] = useState<FilterStops>("all");
 
   useEffect(() => {
-    const home = searchParams?.get("homeAirport");
-    const destinationParam = searchParams?.get("destinations");
-    let initialFlights = [...mockFlights];
+  async function loadFlights() {
+    try {
+      const response = await fetch(
+        "http://localhost:8081/api/flights/search"
+      );
 
-    if (home) {
-      initialFlights = initialFlights.filter((flight) => flight.departure === home);
-    }
-
-    if (destinationParam) {
-      const destinationValues = destinationParam.split(",").filter(Boolean);
-      if (destinationValues.length > 0) {
-        initialFlights = initialFlights.filter((flight) => destinationValues.includes(flight.arrival));
+      if (!response.ok) {
+        throw new Error("Failed to retrieve flights");
       }
-    }
 
-    setFlights(initialFlights);
-    setFilteredFlights(initialFlights);
-  }, [searchParams]);
+      const data: Flight[] = await response.json();
+
+      setFlights(data);
+    } catch (error) {
+      console.error(error);
+      setError("Unable to load flights.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  loadFlights();
+}, []);
+
+
 
   const searchSummary = homeAirport && destinations.length > 0
     ? `Showing results from ${homeAirport} to ${destinations.join(", ")} on ${departDate || "your selected dates"}`
@@ -135,6 +70,27 @@ export default function FlightResults() {
 
   useEffect(() => {
     let filtered = [...flights];
+
+  const home = searchParams?.get("homeAirport");
+  const destinationParam = searchParams?.get("destinations");
+
+  if (home) {
+    filtered = filtered.filter(
+      (flight) => flight.departure === home
+    );
+  }
+
+  if (destinationParam) {
+    const destinationValues = destinationParam
+      .split(",")
+      .filter(Boolean);
+
+    if (destinationValues.length > 0) {
+      filtered = filtered.filter((flight) =>
+        destinationValues.includes(flight.arrival)
+      );
+    }
+  }
 
     // Filter by price
     filtered = filtered.filter((flight) => flight.price <= maxPrice);
@@ -164,7 +120,15 @@ export default function FlightResults() {
     }
 
     setFilteredFlights(filtered);
-  }, [maxPrice, stops, sortBy, flights]);
+  }, [flights, searchParams, maxPrice, stops, sortBy]);
+
+    if (loading) {
+  return <p className="p-8">Loading flights...</p>;
+  }
+
+  if (error) {
+    return <p className="p-8 text-red-600">{error}</p>;
+  }
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8">
