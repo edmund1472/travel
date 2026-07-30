@@ -1,43 +1,52 @@
 package travelplanner.controller;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import travelplanner.model.FlightResult;
-
-import java.util.List;
+import org.springframework.web.client.RestClient;
 
 @RestController
 @RequestMapping("/api/flights")
 public class FlightSearchController {
 
-    @GetMapping("/search")
-    public List<FlightResult> searchFlights() {
-        return List.of(
-                new FlightResult(
-                        "1",
-                        "Delta Airlines",
-                        "JFK",
-                        "LAX",
-                        "08:00 AM",
-                        "11:30 AM",
-                        "5h 30m",
-                        0,
-                        245.00,
-                        4.5
-                ),
-                new FlightResult(
-                        "2",
-                        "United Airlines",
-                        "EWR",
-                        "LAX",
-                        "10:15 AM",
-                        "2:00 PM",
-                        "5h 45m",
-                        1,
-                        220.00,
-                        4.2
-                )
-        );
+    private final RestClient restClient;
+    private final String apiKey;
+
+    public FlightSearchController(
+            RestClient.Builder restClientBuilder,
+            @Value("${serpapi.api-key}") String apiKey
+    ) {
+        this.restClient = restClientBuilder
+                .baseUrl("https://serpapi.com")
+                .build();
+
+        this.apiKey = apiKey;
+    }
+
+    @GetMapping(
+            value = "/search",
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public String searchFlights(
+            @RequestParam String departure,
+            @RequestParam String arrival,
+            @RequestParam String date
+    ) {
+        return restClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/search.json")
+                        .queryParam("engine", "google_flights")
+                        .queryParam("departure_id", departure.toUpperCase())
+                        .queryParam("arrival_id", arrival.toUpperCase())
+                        .queryParam("outbound_date", date)
+                        .queryParam("type", "2")
+                        .queryParam("currency", "USD")
+                        .queryParam("api_key", apiKey)
+                        .build())
+                .retrieve()
+                .body(String.class);
     }
 }
