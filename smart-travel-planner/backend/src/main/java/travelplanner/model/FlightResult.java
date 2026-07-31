@@ -8,6 +8,7 @@ public record FlightResult(
         String departureTime,
         String arrivalTime,
         String duration,
+        String test,
         int stops,
         double price,
         double rating
