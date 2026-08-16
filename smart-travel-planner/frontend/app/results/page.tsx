@@ -7,6 +7,7 @@ import CompactFlightSearch from "@/components/CompactFlightSearch";
 interface Flight {
   id: string;
   airline: string;
+  airlineLogo: string;
   departure: string;
   arrival: string;
   departureTime: string;
@@ -14,11 +15,10 @@ interface Flight {
   duration: string;
   stops: number;
   price: number;
-  rating: number;
 }
 
 
-type SortOption = "price-low" | "price-high" | "duration" | "rating";
+type SortOption = "price-low" | "price-high" | "duration";
 type FilterStops = "all" | "0" | "1" | "2+";
 
 export default function FlightResults() {
@@ -39,9 +39,26 @@ export default function FlightResults() {
 
   useEffect(() => {
   async function loadFlights() {
+    if (!homeAirport || destinations.length === 0 || !departDate) {
+      setError("Missing flight search information.");
+      setLoading(false);
+      return;
+    }
+
     try {
+      setLoading(true);
+      setError("");
+
+      const destination = destinations[0];
+
+      const params = new URLSearchParams({
+        departure: homeAirport,
+        arrival: destination,
+        date: departDate,
+      });
+
       const response = await fetch(
-        "http://localhost:8081/api/flights/search"
+        `http://localhost:8081/api/flights/search?${params.toString()}`
       );
 
       if (!response.ok) {
@@ -60,7 +77,7 @@ export default function FlightResults() {
   }
 
   loadFlights();
-}, []);
+}, [homeAirport, destinations.join(","), departDate]);
 
 
 
@@ -115,9 +132,7 @@ export default function FlightResults() {
         const bDuration = Number(b.duration.split("h")[0]) * 60 + Number(b.duration.split("m")[0].split(" ").pop());
         return aDuration - bDuration;
       });
-    } else if (sortBy === "rating") {
-      filtered.sort((a, b) => b.rating - a.rating);
-    }
+    } 
 
     setFilteredFlights(filtered);
   }, [flights, searchParams, maxPrice, stops, sortBy]);
@@ -174,7 +189,6 @@ export default function FlightResults() {
                 <option value="price-low">Price (Low to High)</option>
                 <option value="price-high">Price (High to Low)</option>
                 <option value="duration">Shortest Duration</option>
-                <option value="rating">Best Rating</option>
               </select>
             </div>
 
@@ -230,13 +244,17 @@ export default function FlightResults() {
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     {/* Flight Info */}
                     <div className="flex-1">
-                      <div className="flex items-center gap-4 mb-3">
+                      <div className="flex items-center gap-3 mb-3">
+                        {flight.airlineLogo && (
+                          <img
+                            src={flight.airlineLogo}
+                            alt={`${flight.airline} logo`}
+                            className="h-8 w-8 object-contain"
+                          />
+                        )}
+
                         <div className="rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-800">
                           {flight.airline}
-                        </div>
-                        <div className="flex items-center gap-1 text-sm text-yellow-500">
-                          {"★".repeat(Math.floor(flight.rating))}
-                          <span className="text-slate-500">({flight.rating})</span>
                         </div>
                       </div>
 
