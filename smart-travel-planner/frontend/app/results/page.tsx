@@ -13,6 +13,11 @@ import { durationMinutes, formatDate, formatPrice, formatShortDate } from "@/lib
 
 type SortOption = "best" | "price" | "duration";
 type StopsFilter = "any" | "0" | "1";
+type FailedDestination = { code: string; message: string };
+
+function errorMessage(reason: unknown) {
+  return reason instanceof Error ? reason.message : "Something went wrong loading these flights.";
+}
 
 const timeWindows = [
   { id: "morning", label: "Morning", hint: "5a–12p", from: 5, to: 12 },
@@ -61,7 +66,7 @@ function FlightResults() {
   const destinations = useMemo(() => destinationsParam.split(",").filter(Boolean), [destinationsParam]);
 
   const [flights, setFlights] = useState<Flight[]>([]);
-  const [failed, setFailed] = useState<string[]>([]);
+  const [failed, setFailed] = useState<FailedDestination[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -91,14 +96,20 @@ function FlightResults() {
       if (cancelled) return;
 
       const merged: Flight[] = [];
-      const failedDestinations: string[] = [];
+      const failedDestinations: FailedDestination[] = [];
       settled.forEach((result, i) => {
         if (result.status === "fulfilled") merged.push(...result.value);
-        else failedDestinations.push(destinations[i]);
+        else failedDestinations.push({ code: destinations[i], message: errorMessage(result.reason) });
       });
 
       if (failedDestinations.length === destinations.length) {
-        setError("We couldn't reach the flight search service. Make sure the backend is running on port 8081.");
+        // Every destination failed: show the shared reason once, or list each one.
+        const messages = [...new Set(failedDestinations.map((f) => f.message))];
+        setError(
+          messages.length === 1
+            ? messages[0]
+            : failedDestinations.map((f) => `${cityFor(f.code) || f.code}: ${f.message}`).join(" ")
+        );
       }
       setFlights(merged);
       setFailed(failedDestinations);
@@ -399,10 +410,19 @@ function FlightResults() {
               </div>
 
               {failed.length > 0 && (
-                <p className="mb-4 flex items-center gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  <AlertIcon width={16} height={16} />
-                  Couldn&apos;t load flights to {failed.join(", ")}. Showing the rest.
-                </p>
+                <div className="mb-4 flex items-start gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  <AlertIcon width={16} height={16} className="mt-0.5 shrink-0" />
+                  <div>
+                    <p>Couldn&apos;t load flights to {failed.map((f) => cityFor(f.code) || f.code).join(", ")}. Showing the rest.</p>
+                    <ul className="mt-1 space-y-0.5 text-amber-700">
+                      {failed.map((f) => (
+                        <li key={f.code}>
+                          <span className="font-medium">{f.code}:</span> {f.message}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
               )}
 
               <div className="space-y-3">

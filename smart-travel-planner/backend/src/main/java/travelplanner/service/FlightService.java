@@ -3,21 +3,29 @@ package travelplanner.service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 import travelplanner.model.FlightResult;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @Service
 public class FlightService {
 
     private static final Logger log = LoggerFactory.getLogger(FlightService.class);
+
+    private static final Pattern AIRPORT_CODE = Pattern.compile("[A-Za-z]{3}");
 
     // Google Flights rejects metro/city codes, but accepts a comma-separated list of airports.
     private static final Map<String, String> METRO_AREAS = Map.of(
@@ -61,38 +69,115 @@ public class FlightService {
             String date
     ) {
 
-        String response = restClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/search.json")
-                        .queryParam("engine", "google_flights")
-                        .queryParam("departure_id", toAirportIds(departure))
-                        .queryParam("arrival_id", toAirportIds(arrival))
-                        .queryParam("outbound_date", date)
-                        .queryParam("type", "2")
-                        .queryParam("currency", "USD")
-                        .queryParam("api_key", apiKey)
-                        .build())
-                .retrieve()
-                .body(String.class);
+        validate(departure, arrival, date);
 
-        List<FlightResult> results = new ArrayList<>();
-
-        try {
-            JsonNode root = objectMapper.readTree(response);
-
-            if (root.has("error")) {
-                log.warn("SerpAPI returned an error for {} -> {} on {}: {}",
-                        departure, arrival, date, root.get("error").asText());
-            }
-
-            parseFlightGroup(root.get("best_flights"), results);
-            parseFlightGroup(root.get("other_flights"), results);
-
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to parse flight results", e);
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new FlightSearchException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Flight search isn't configured: SERPAPI_API_KEY is missing on the server.");
         }
 
+        String response;
+        try {
+            response = restClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/search.json")
+                            .queryParam("engine", "google_flights")
+                            .queryParam("departure_id", toAirportIds(departure))
+                            .queryParam("arrival_id", toAirportIds(arrival))
+                            .queryParam("outbound_date", date)
+                            .queryParam("type", "2")
+                            .queryParam("currency", "USD")
+                            .queryParam("api_key", apiKey)
+                            .build())
+                    .retrieve()
+                    .body(String.class);
+        } catch (RestClientResponseException e) {
+            throw fromSerpApiError(e.getStatusCode().value(), serpApiErrorMessage(e.getResponseBodyAsString()), e);
+        } catch (ResourceAccessException e) {
+            throw new FlightSearchException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Couldn't reach the flight data provider. Check your internet connection and try again.", e);
+        }
+
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(response);
+        } catch (Exception e) {
+            throw new FlightSearchException(HttpStatus.BAD_GATEWAY,
+                    "The flight data provider sent a response we couldn't read.", e);
+        }
+
+        if (root.has("error")) {
+            String error = root.get("error").asText();
+            // SerpAPI reports an empty search as an "error"; that's just zero results.
+            if (error.toLowerCase().contains("hasn't returned any results")) {
+                return List.of();
+            }
+            throw fromSerpApiError(200, error, null);
+        }
+
+        List<FlightResult> results = new ArrayList<>();
+        parseFlightGroup(root.get("best_flights"), results);
+        parseFlightGroup(root.get("other_flights"), results);
         return results;
+    }
+
+    private static void validate(String departure, String arrival, String date) {
+        if (!AIRPORT_CODE.matcher(departure.trim()).matches()) {
+            throw new FlightSearchException(HttpStatus.BAD_REQUEST,
+                    "\"" + departure + "\" isn't a valid 3-letter airport code.");
+        }
+        if (!AIRPORT_CODE.matcher(arrival.trim()).matches()) {
+            throw new FlightSearchException(HttpStatus.BAD_REQUEST,
+                    "\"" + arrival + "\" isn't a valid 3-letter airport code.");
+        }
+        if (departure.trim().equalsIgnoreCase(arrival.trim())) {
+            throw new FlightSearchException(HttpStatus.BAD_REQUEST,
+                    "Origin and destination can't be the same airport.");
+        }
+
+        LocalDate parsed;
+        try {
+            parsed = LocalDate.parse(date);
+        } catch (DateTimeParseException e) {
+            throw new FlightSearchException(HttpStatus.BAD_REQUEST,
+                    "\"" + date + "\" isn't a valid date. Use YYYY-MM-DD.");
+        }
+        if (parsed.isBefore(LocalDate.now())) {
+            throw new FlightSearchException(HttpStatus.BAD_REQUEST,
+                    "The departure date " + date + " is in the past.");
+        }
+    }
+
+    private String serpApiErrorMessage(String body) {
+        try {
+            JsonNode node = objectMapper.readTree(body);
+            if (node.has("error")) {
+                return node.get("error").asText();
+            }
+        } catch (Exception ignored) {
+            // Not JSON; fall through to the raw body.
+        }
+        return body;
+    }
+
+    private static FlightSearchException fromSerpApiError(int status, String error, Throwable cause) {
+        log.warn("SerpAPI error (HTTP {}): {}", status, error);
+        String lower = error == null ? "" : error.toLowerCase();
+
+        if (status == 401 || lower.contains("invalid api key")) {
+            return new FlightSearchException(HttpStatus.BAD_GATEWAY,
+                    "The server's SerpAPI key was rejected. Check SERPAPI_API_KEY.", cause);
+        }
+        if (status == 429 || lower.contains("run out of searches") || lower.contains("rate limit")) {
+            return new FlightSearchException(HttpStatus.TOO_MANY_REQUESTS,
+                    "The flight search quota has been used up. Try again later.", cause);
+        }
+        if (status == 400) {
+            return new FlightSearchException(HttpStatus.BAD_REQUEST,
+                    "Google Flights rejected this search: " + error, cause);
+        }
+        return new FlightSearchException(HttpStatus.BAD_GATEWAY,
+                "The flight data provider returned an error: " + error, cause);
     }
 
     private void parseFlightGroup(
