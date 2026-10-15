@@ -7,11 +7,36 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import travelplanner.model.FlightResult;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class FlightService {
+
+    private static final Logger log = LoggerFactory.getLogger(FlightService.class);
+
+    // Google Flights rejects metro/city codes, but accepts a comma-separated list of airports.
+    private static final Map<String, String> METRO_AREAS = Map.of(
+            "NYC", "JFK,EWR,LGA",
+            "LON", "LHR,LGW,STN,LTN,LCY",
+            "WAS", "IAD,DCA,BWI",
+            "CHI", "ORD,MDW",
+            "TYO", "HND,NRT",
+            "PAR", "CDG,ORY",
+            "SEL", "ICN,GMP",
+            "MIL", "MXP,LIN,BGY",
+            "OSA", "KIX,ITM",
+            "ROM", "FCO,CIA"
+    );
+
+    private static String toAirportIds(String code) {
+        String upper = code.trim().toUpperCase();
+        return METRO_AREAS.getOrDefault(upper, upper);
+    }
 
     private final RestClient restClient;
     private final String apiKey;
@@ -40,8 +65,8 @@ public class FlightService {
                 .uri(uriBuilder -> uriBuilder
                         .path("/search.json")
                         .queryParam("engine", "google_flights")
-                        .queryParam("departure_id", departure.toUpperCase())
-                        .queryParam("arrival_id", arrival.toUpperCase())
+                        .queryParam("departure_id", toAirportIds(departure))
+                        .queryParam("arrival_id", toAirportIds(arrival))
                         .queryParam("outbound_date", date)
                         .queryParam("type", "2")
                         .queryParam("currency", "USD")
@@ -54,6 +79,11 @@ public class FlightService {
 
         try {
             JsonNode root = objectMapper.readTree(response);
+
+            if (root.has("error")) {
+                log.warn("SerpAPI returned an error for {} -> {} on {}: {}",
+                        departure, arrival, date, root.get("error").asText());
+            }
 
             parseFlightGroup(root.get("best_flights"), results);
             parseFlightGroup(root.get("other_flights"), results);
